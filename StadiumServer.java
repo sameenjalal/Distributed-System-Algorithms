@@ -5,8 +5,9 @@ public class StadiumServer
 {
 	// Defining the static port and address variables
 	private static final String ADDR = "228.5.6.7";
-	private static final String STARTMESG = "Let's get ready to RUMBLE!";
-	private static final String GROUPIE_MESG = "Let's be groupies!";
+	private static final String STARTMESG = "Start";
+	private static final String GROUPIE_MESG = "I'm looking for a group!";
+	private static final String MEMBER_MESG = "I am in your group!";
 	private static final String ELECTION_MESG = "Fight the power!";
 	private static final String UPDATE = "Update";
 	private static final int PORT = 6666;
@@ -15,7 +16,7 @@ public class StadiumServer
 	private static String hostname = null;
 
 	// Net Info
-	private static ArrayList<String> groupies = new ArrayList();
+	private static Set<String> groupies = new Set<String>();
 	private static String leader = null;
 
 	public static void updateGroupiesAndLeader( ArrayList<String> newGroupies, String newLeader )
@@ -69,7 +70,9 @@ public class StadiumServer
 			// If I am the leader, send out a needGroupies message
 			if( leader.equals( hostname ) ) {
 				try {
-					DatagramPacket needGroupies = new DatagramPacket( GROUPIE_MESG.getBytes(), GROUPIE_MESG.length(), group, PORT );
+					String myGroupies = groupies.serialize();
+					String message = GROUPIE_MESSAGE  + myGroupies;
+					DatagramPacket needGroupies = new DatagramPacket( message.getBytes(), message.length(), message, PORT );
 					socket.send( needGroupies );
 				}
 				catch( Exception e ) {
@@ -77,21 +80,37 @@ public class StadiumServer
 				}
 
 				try {
-					byte[] buffer = new byte[ GROUPIE_MESG.length() ];
+					byte[] buffer = new byte[ GROUPIE_MESG.length() + 1024 ];
 					DatagramPacket getGroupieMesg = new DatagramPacket( buffer, buffer.length );
+
+					boolean sad = true;
 
 					// Check for groupie messages for 5 secods, if nothing assume you are alone in the current pairing
 					for( int i = 0 ; i < 5 ; i++ ) {
 						socket.receive( getGroupieMesg );
 						String str = new String( getGroupieMesg.getData() );
-						str = str.toString();
 
-						if( str.equals( GROUPIE_MESG ) ) {
-							
+						String sender = (InetAddress)(needGroupies.getSocketAddress()).getHostname();
+
+						//we found a group.
+						if( str.startsWith( GROUPIE_MESG ) ) {
+							groupies.add(sender);
+							sad = false;
+							break;
+						}
+						else if(str.startsWith (MEMBER_MESG) ) {
+							groupies.add(sender);
+							sad = false;
 						}
 						else {
 							Thread.sleep( 1000 );
 						}
+					}
+					
+					//No one wants to be friends so let's die.
+					if(sad) {
+						System.out.println(groupies.size());
+						System.exit(0);
 					}
 				}
 				catch( Exception e ) {

@@ -5,7 +5,7 @@ public class StartStadiumCounter
 	// Defining the static port and address variables
 	private static final String ADDR = "228.5.6.7";
 	// private static final String STARTMESG = "Let's get ready to rumble!";
-	private static final String STARTMESG = "Let's get ready to RUMBLE!";
+	private static final String STARTMESG = "Start";
 	private static final int PORT = 6666;
 
 	public static void main( String[] args )
