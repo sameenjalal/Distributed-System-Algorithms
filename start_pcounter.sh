@@ -29,24 +29,24 @@ EOF
 while getopts "d:f:" opt 
 do
     case $opt in
-	d)
-	    DIR=$OPTARG
-	    echo -e "Directory: $DIR"
-	    ;;
-	f)
-	    FILE=$OPTARG
-	    echo -e "Filename: $FILE"
-	    ;;
-	\?)
-	    echo "Invalid option -$OPTARG" >&2
-	    usage
-	    exit 1
-	    ;;
-	:)
-	    echo "Option -$OPTARG requires an argument." >&2
-	    usage
-	    exit 1
-	    ;;
+        d)
+            DIR=$OPTARG
+            echo -e "Directory: $DIR"
+            ;;
+        f)
+            FILE=$OPTARG
+            echo -e "Filename: $FILE"
+            ;;
+        \?)
+            echo "Invalid option -$OPTARG" >&2
+            usage
+            exit 1
+            ;;
+        :)
+            echo "Option -$OPTARG requires an argument." >&2
+            usage
+            exit 1
+            ;;
      esac
 done
 
@@ -63,9 +63,13 @@ NODES=${node[@]}
 echo -e "\nStarting pcounter on $NBR_NODES nodes:"
 echo -e "\tNode\t\t\tOutput file"
 echo -e "\t----\t\t\t-----------"
+k=0
 for i in $NODES; do 
+    let "k += 1"
     OUT_FILE=pcounter-$i.out
     echo -e "\t$i\t\t\t$DIR/$OUT_FILE"; 
-    ssh $i "nohup ./pcounter > $OUT_FILE &"; 
+	ssh -q $i "nohup ./pcounter &> $OUT_FILE < /dev/null &"; 
+    if [ $k == $NBR_NODES ] ; then
+        ssh -q $i "nohup ./pcounter init &> $OUT_FILE < /dev/null &"; 
+	fi
 done
-nohup make start

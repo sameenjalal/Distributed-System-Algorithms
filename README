@@ -1,3 +1,19 @@
+Sameen Jalal and Vaibhav Verma
 Stadium Count Problem
 Distributed Systems: Assignment 4
 
+Before Running Our Program:
+	Change the directory that the "dir" variable points to in the "pcounter" file.
+	Then put the "pcounter" file in the home directory
+	Then "cd" into the directory that contains the Makefile
+	Run "make"
+
+To Run Our Program Manually:
+	"make server" - to run a specific instance of the program
+	"make start" - to trigger the stadium count problem after a set number of nodes have entered the network
+
+To Run Our Program with a Script:
+	./start_pcounter.sh
+
+Running our program will output files that end in ".out" in the home directory.
+	To check run: "cat *.out"

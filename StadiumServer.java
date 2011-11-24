@@ -1,5 +1,6 @@
 import java.net.*;
 import java.util.*;
+import java.io.*;
 
 public class StadiumServer
 {
@@ -7,121 +8,213 @@ public class StadiumServer
 	private static final String ADDR = "228.5.6.7";
 	private static final String STARTMESG = "Start";
 	private static final String GROUPIE_MESG = "I'm looking for a group!";
-	private static final String MEMBER_MESG = "I am in your group!";
-	private static final String ELECTION_MESG = "Fight the power!";
-	private static final String UPDATE = "Update";
-	private static final int PORT = 6666;
+	private static final String MEMBER_MESG = "You are in my group!";
+	private static final int MULTICAST_PORT = 6666;
+	private static final int MAX_SILENCE_COUNT = 36;
+	protected static boolean stop = false;
 
 	// My Info
 	private static String hostname = null;
 
 	// Net Info
-	private static Set<String> groupies = new Set<String>();
+	private static HashSet<String> groupies = new HashSet<String>();
 	private static String leader = null;
-
-	public static void updateGroupiesAndLeader( ArrayList<String> newGroupies, String newLeader )
-	{
-		groupies = newGroupies;
-		leader = newLeader;
-	}
-
-	public static void updateAllMyGroupiesAsLeader()
-	{
-		// TODO: I want to iterate through all my groupies and update their net info
-	}
 
 	public static void main( String[] args )
 	{
-		InetAddress group;
-		MulticastSocket socket;
+		InetAddress multicastGroup;
+		MulticastSocket multicastSocket;
+
+		hostname = getHostname();
+		leader = hostname;
 
 		// Join a Multicast group and wait for the multicast message to start
 		try {
-			group = InetAddress.getByName( ADDR );
-			socket = new MulticastSocket( PORT );
+			multicastGroup = InetAddress.getByName( ADDR );
+			multicastSocket = new MulticastSocket( MULTICAST_PORT );
 
 			// JOIN THE MULTICAST GROUP AND PREP DATAGRAM PACKET
-			socket.joinGroup(group);
+			multicastSocket.joinGroup(multicastGroup);
+			multicastSocket.setLoopbackMode(true);
+
+			multicastSocket.setSoTimeout(100);
 
 			byte[] buffer = new byte[ STARTMESG.length() ];
-			DatagramPacket receive = new DatagramPacket( buffer, buffer.length );
+			DatagramPacket received = new DatagramPacket( buffer, buffer.length );
+
 
 			while ( true ) {
-				socket.receive( receive );
-				String str = new String( receive.getData() );
-				str = str.toString();
+				try {
+					multicastSocket.receive( received );
+					String str = new String( received.getData() );
 
-				if( str.equals( STARTMESG ) ) {
-					System.out.println( "RECEIVED: " + str  );
-					hostname = System.getenv( "HOSTNAME" );
-					groupies.add( hostname );
-					leader = hostname;
-					break;
+					if( str.equals( STARTMESG ) ) {
+						//System.out.println( "RECEIVED: " + str  );
+						groupies.add( hostname );
+						break;
+					}
+				} catch (SocketTimeoutException e) {
+					//we don't really care.
 				}
 			}
 		}
 		catch ( Exception e ) {
-			System.out.println( "SOMETHING WENT WRONG!" );
+			e.printStackTrace();
 			return;
 		}
 
-		while( true )
+		//represents how many times we've sent a message without receiving a response
+		int silenceCount = 0;
+
+		//You only get here if you received a Start message.
+		while( silenceCount < MAX_SILENCE_COUNT )
 		{
+			if(leader == null)
+				System.out.println("I AM SO STUPID!");
 			// If I am the leader, send out a needGroupies message
 			if( leader.equals( hostname ) ) {
-				try {
-					String myGroupies = groupies.serialize();
-					String message = GROUPIE_MESSAGE  + myGroupies;
-					DatagramPacket needGroupies = new DatagramPacket( message.getBytes(), message.length(), message, PORT );
-					socket.send( needGroupies );
-				}
-				catch( Exception e ) {
-					System.out.println( "Problem sending needGroupies message" );
-				}
-
-				try {
-					byte[] buffer = new byte[ GROUPIE_MESG.length() + 1024 ];
-					DatagramPacket getGroupieMesg = new DatagramPacket( buffer, buffer.length );
-
-					boolean sad = true;
-
-					// Check for groupie messages for 5 secods, if nothing assume you are alone in the current pairing
-					for( int i = 0 ; i < 5 ; i++ ) {
-						socket.receive( getGroupieMesg );
-						String str = new String( getGroupieMesg.getData() );
-
-						String sender = (InetAddress)(needGroupies.getSocketAddress()).getHostname();
-
-						//we found a group.
-						if( str.startsWith( GROUPIE_MESG ) ) {
-							groupies.add(sender);
-							sad = false;
-							break;
-						}
-						else if(str.startsWith (MEMBER_MESG) ) {
-							groupies.add(sender);
-							sad = false;
-						}
-						else {
-							Thread.sleep( 1000 );
-						}
-					}
-					
-					//No one wants to be friends so let's die.
-					if(sad) {
-						System.out.println(groupies.size());
-						System.exit(0);
-					}
-				}
-				catch( Exception e ) {
-					System.out.println( "Something went wrong with receiving a groupie message" );
-				}
+				sendWantGroup(multicastSocket, multicastGroup);
 			}
+			if(!listenForResponses(multicastSocket, multicastGroup)) {
+				silenceCount++;
+			} else {
+				silenceCount = 0 ;
+			}
+
+			//System.out.printf("Silence Count = %d \n", silenceCount);
 		}
 
-		// TODO: If leader, send out pair message. Mesh groupie lists.
-		// TODO: Elect a leader, leader keeps count of how many are in your sub network
-		// TODO: Check if there is at least another person in your network. If not, return count
-		// TODO: Leaders continue partnering up
+		System.out.println( "The number of machines in the stadium network is: " + groupies.size() );
+	}
+
+	public static void sendWantGroup(MulticastSocket socket, InetAddress multicastGroup)
+	{
+		DatagramPacket needGroupies = null;
+		try {
+			String myGroupies = serialize(groupies);
+			String message = GROUPIE_MESG  + myGroupies;
+			needGroupies = new DatagramPacket( message.getBytes(), message.length(), multicastGroup, MULTICAST_PORT );
+			socket.send( needGroupies );
+		}
+		catch( Exception e ) {
+			//System.out.println( "Problem sending wantGroup message" );
+		}
+	}
+
+	private static void sendAddedToGroup(String machine, MulticastSocket socket, InetAddress multicastGroup) {
+		DatagramPacket packet = null;
+		try {
+			String myGroupies = serialize(groupies);
+			String message = machine + MEMBER_MESG  + myGroupies;
+			packet = new DatagramPacket( message.getBytes(), message.length(), multicastGroup, MULTICAST_PORT );
+			socket.send( packet );
+		}
+		catch( Exception e ) {
+			System.out.println( "Problem sending addedToGroup message" );
+		}
+	}
+
+
+	public static boolean listenForResponses(MulticastSocket socket, InetAddress multicastGroup)
+	{
+		boolean rv = false;
+		//System.out.println("Listening ");
+		try {
+			byte[] buffer = new byte[10*1024];
+			DatagramPacket data = new DatagramPacket(buffer, buffer.length);
+			socket.receive(data);
+			String message = new String(buffer, 0, data.getLength());
+
+			rv = !(message.equals(""));
+				
+
+			//System.out.println("Received the message "+message);
+
+			if(isWantGroupMessage(message) && iAmLeader()) {
+				groupies.addAll(extractData(message, GROUPIE_MESG));
+				for(String machine: groupies) {
+					if(!machine.equals(hostname)) {
+						//send message to machine: I added you to my group. Here's my group members.
+						sendAddedToGroup(machine, socket, multicastGroup);
+					}
+				}
+
+				leader = elect(groupies);
+
+				//System.out.printf("My groupies are %s. My leader is %s \n", serialize(groupies), leader);
+			}
+
+			//This is actually a unicast
+			if(isAddedToGroupMessage(message)) {
+				groupies.addAll(extractData(message, hostname+MEMBER_MESG));
+
+				//System.out.printf("My groupies are %s \n", serialize(groupies));
+			}
+		} catch(SocketTimeoutException e) {
+			//we don't really care.
+		} catch(Exception e) {
+			e.printStackTrace();
+		}
+		return rv;
+	}
+
+	private static boolean isWantGroupMessage(String message) {
+		return message.startsWith(GROUPIE_MESG);
+	}
+
+	private static boolean isAddedToGroupMessage(String message) {
+		return message.startsWith(hostname + MEMBER_MESG);
+	}
+
+	private static boolean iAmLeader() {
+		return leader.equals(hostname);
+	}
+
+	public static HashSet<String> extractData(String packetData, String prefix) 
+	{
+		//chop off the first -prefix.length- characters.
+		String serialized = packetData.substring(prefix.length());
+
+		return unserialize(serialized);
+	}
+
+	public static String serialize(HashSet<String> set) {
+		String result = "";
+
+		for(String elem: set)
+			result += elem + ",";
+		return result;
+	}
+
+	public static HashSet<String> unserialize(String str) {
+
+		HashSet<String> result = new HashSet<String>();
+
+		for(String elem: str.split(","))
+			if(elem.length() > 0)
+				result.add(elem);
+
+		return result;
+	}
+
+	public static String elect(HashSet<String> contenders) {
+
+		Iterator<String> it = contenders.iterator();
+		return it.next();
+	}
+
+	public static String getHostname() {
+		String hostname = "";
+		try {
+			InetAddress addr = InetAddress.getLocalHost();
+
+			// Get IP Address
+			byte[] ipAddr = addr.getAddress();
+
+			// Get hostname
+			hostname = addr.getHostName();
+		} catch (UnknownHostException e) {
+		}
+		return hostname.substring(0, hostname.indexOf(".rutgers.edu"));
 	}
 }
